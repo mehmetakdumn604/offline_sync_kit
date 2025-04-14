@@ -13,32 +13,75 @@ and the Flutter guide for
 
 # Offline Sync Kit
 
-Flutter paketi olan Offline Sync Kit, farklı türdeki verileri cihaz üzerinde offline olarak saklamak ve internet bağlantısı sağlandığında bu verileri belirli bir API'ye senkronize etmek için tasarlanmıştır.
+Offline Sync Kit is a comprehensive Flutter package designed to solve one of the most challenging aspects of mobile app development: reliable data synchronization between local device storage and remote APIs, especially in environments with intermittent connectivity.
 
-## Özellikler
+## Overview
 
-- Offline veri saklama ve senkronizasyon
-- Esnek ve genişletilebilir yapı
-- Farklı veri tipleriyle çalışabilme
-- Veri çakışmalarını yönetme
-- Otomatik senkronizasyon
-- İnternet bağlantı durumunu izleme
-- Senkronizasyon durumu takibi
+This package provides a robust framework for storing different types of data locally while automatically managing their synchronization with a remote server. Whether your users are filling out forms, creating chat messages, updating records, or changing settings, Offline Sync Kit ensures that their data remains accessible offline and properly synchronized when connectivity is restored.
 
-## Kurulum
+### The Problem Solved
 
-Paketi projenize eklemek için `pubspec.yaml` dosyasına aşağıdaki satırları ekleyin:
+Many mobile applications need to function seamlessly regardless of network conditions. Users expect to continue using apps even when offline, and they expect their changes to persist and eventually synchronize with backend systems without data loss.
+
+Traditional approaches to this problem often involve writing custom synchronization logic for each data type, managing complex conflict resolution, and monitoring network connectivity - all of which require significant development effort and are prone to subtle bugs.
+
+Offline Sync Kit abstracts away these challenges by providing:
+
+- A unified model for defining any type of synchronized data
+- Automatic local storage with SQLite-based persistence
+- Intelligent upload queuing and retry mechanisms
+- Network state monitoring with appropriate action handling
+- Configurable synchronization strategies with bidirectional sync capability
+- Conflict detection and resolution mechanisms
+
+### Key Architectural Components
+
+The package is built around several key components:
+
+1. **SyncModel**: The base class for all synchronizable data models, featuring standardized fields for tracking synchronization status, timestamps, and error handling
+2. **OfflineSyncManager**: The main entry point for the package that orchestrates synchronization operations
+3. **StorageService**: Manages local data persistence with transactional support
+4. **SyncEngine**: Handles the core synchronization logic with configurable strategies
+5. **NetworkClient**: Provides a flexible API client with a default HTTP implementation
+6. **ConnectivityService**: Monitors network state and triggers appropriate actions
+
+### Real-World Applications
+
+This package is particularly valuable for:
+
+- **Field Service Applications**: Where technicians need access to work orders and the ability to complete forms even in areas with poor connectivity
+- **Healthcare Apps**: For collecting patient data that must be reliably synchronized with medical records systems
+- **Sales & Inventory Systems**: To update stock levels and process orders regardless of network availability
+- **Collaborative Tools**: That need to handle editing conflicts when multiple users modify the same data
+- **Data Collection Apps**: That gather information in remote locations for later synchronization
+
+## Features
+
+- Offline data storage and synchronization
+- Flexible and extensible structure
+- Works with different data types
+- Conflict management
+- Automatic synchronization
+- Internet connection monitoring
+- Synchronization status tracking
+- Exponential backoff for failed requests
+- Delta synchronization for bandwidth efficiency
+- Customizable synchronization policies
+
+## Installation
+
+To add the package to your project, add the following lines to your `pubspec.yaml` file:
 
 ```yaml
 dependencies:
   offline_sync_kit: ^0.0.1
 ```
 
-## Kullanım
+## Usage
 
-### 1. Veri Modeli Oluşturma
+### 1. Creating a Data Model
 
-Öncelikle senkronize edilecek veri modelinizi `SyncModel` sınıfından türetin:
+First, derive your synchronizable data model from the `SyncModel` class:
 
 ```dart
 import 'package:offline_sync_kit/offline_sync_kit.dart';
@@ -126,21 +169,21 @@ class Todo extends SyncModel {
 }
 ```
 
-### 2. Senkronizasyon Yöneticisini Başlatma
+### 2. Initializing the Synchronization Manager
 
-Uygulamanızın başlatılması sırasında `OfflineSyncManager`'ı yapılandırın:
+Configure the `OfflineSyncManager` during your application initialization:
 
 ```dart
 import 'package:offline_sync_kit/offline_sync_kit.dart';
 
 Future<void> initSyncManager() async {
-  // API baz URL'inizi burada belirtin
+  // Specify your API base URL here
   const baseUrl = 'https://api.example.com';
   
   final storageService = StorageServiceImpl();
   await storageService.initialize();
   
-  // Model factory kaydetme
+  // Register model factory
   (storageService as StorageServiceImpl).registerModelDeserializer<Todo>(
     'todo',
     (json) => Todo.fromJson(json),
@@ -151,7 +194,7 @@ Future<void> initSyncManager() async {
     storageService: storageService,
   );
   
-  // TodoModel'i OfflineSyncManager'a kaydetme
+  // Register TodoModel with OfflineSyncManager
   OfflineSyncManager.instance.registerModelFactory<Todo>(
     'todo',
     (json) => Todo.fromJson(json),
@@ -159,92 +202,92 @@ Future<void> initSyncManager() async {
 }
 ```
 
-### 3. Verileri Yönetme
+### 3. Managing Data
 
-#### Veri Ekleme
+#### Adding Data
 
 ```dart
 final newTodo = Todo(
-  title: 'Yeni görev',
-  description: 'Bu bir örnek görevdir',
+  title: 'New task',
+  description: 'This is an example task',
 );
 
 await OfflineSyncManager.instance.saveModel<Todo>(newTodo);
 ```
 
-#### Veri Güncelleme
+#### Updating Data
 
 ```dart
 final updatedTodo = todo.copyWith(
-  title: 'Güncellenmiş başlık',
+  title: 'Updated title',
   isCompleted: true,
 );
 
 await OfflineSyncManager.instance.updateModel<Todo>(updatedTodo);
 ```
 
-#### Veri Silme
+#### Deleting Data
 
 ```dart
 await OfflineSyncManager.instance.deleteModel<Todo>(todo.id, 'todo');
 ```
 
-#### Veri Alma
+#### Retrieving Data
 
 ```dart
-// Tek bir öğeyi getirme
+// Get a single item
 final todo = await OfflineSyncManager.instance.getModel<Todo>(id, 'todo');
 
-// Tüm öğeleri getirme
+// Get all items
 final todos = await OfflineSyncManager.instance.getAllModels<Todo>('todo');
 ```
 
-### 4. Senkronizasyon
+### 4. Synchronization
 
-#### Manuel Senkronizasyon
+#### Manual Synchronization
 
 ```dart
-// Tüm verileri senkronize etme
+// Synchronize all data
 await OfflineSyncManager.instance.syncAll();
 
-// Belirli model tipini senkronize etme
+// Synchronize a specific model type
 await OfflineSyncManager.instance.syncByModelType('todo');
 ```
 
-#### Otomatik Senkronizasyon
+#### Automatic Synchronization
 
 ```dart
-// Periyodik senkronizasyonu başlatma
+// Start periodic synchronization
 await OfflineSyncManager.instance.startPeriodicSync();
 
-// Periyodik senkronizasyonu durdurma
+// Stop periodic synchronization
 await OfflineSyncManager.instance.stopPeriodicSync();
 ```
 
-### 5. Senkronizasyon Durumunu İzleme
+### 5. Monitoring Synchronization Status
 
 ```dart
-// Senkronizasyon durumunu dinleme
+// Listen to synchronization status
 OfflineSyncManager.instance.syncStatusStream.listen((status) {
-  print('Bağlantı durumu: ${status.isConnected}');
-  print('Senkronizasyon işlemi: ${status.isSyncing}');
-  print('Bekleyen değişiklikler: ${status.pendingChanges}');
-  print('Son senkronizasyon zamanı: ${status.lastSyncTime}');
+  print('Connection status: ${status.isConnected}');
+  print('Synchronization process: ${status.isSyncing}');
+  print('Pending changes: ${status.pendingChanges}');
+  print('Last synchronization time: ${status.lastSyncTime}');
 });
 
-// Mevcut durumu alma
+// Get current status
 final status = await OfflineSyncManager.instance.currentStatus;
 ```
 
-## Örnek Uygulama
+## Example App
 
-Paket ile birlikte gelen örnek uygulamayı çalıştırmak için:
+To run the example app that comes with the package:
 
 ```bash
 cd example
 flutter run
 ```
 
-## Lisans
+## License
 
-Bu paket MIT lisansı altında dağıtılmaktadır.
+This package is distributed under the MIT license.

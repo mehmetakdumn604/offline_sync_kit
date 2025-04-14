@@ -12,13 +12,13 @@ void main() async {
 }
 
 Future<void> initSyncManager() async {
-  // Gerçek uygulamada buraya kendi API adresinizi koyun
+  // Put your API address here in a real application
   const baseUrl = 'https://jsonplaceholder.typicode.com';
 
   final storageService = StorageServiceImpl();
   await storageService.initialize();
 
-  // Model factory kaydetme
+  // Register model factory
   (storageService as StorageServiceImpl).registerModelDeserializer<Todo>(
     'todo',
     (json) => Todo.fromJson(json),
@@ -29,7 +29,7 @@ Future<void> initSyncManager() async {
     storageService: storageService,
   );
 
-  // TodoModel'i OfflineSyncManager'a kaydetme
+  // Register Todo model with OfflineSyncManager
   OfflineSyncManager.instance.registerModelFactory<Todo>(
     'todo',
     (json) => Todo.fromJson(json),
