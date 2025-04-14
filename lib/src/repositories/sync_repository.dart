@@ -1,0 +1,28 @@
+import 'dart:async';
+import '../models/sync_model.dart';
+import '../models/sync_result.dart';
+
+abstract class SyncRepository {
+  Future<SyncResult> syncItem<T extends SyncModel>(T item);
+
+  Future<SyncResult> syncAll<T extends SyncModel>(
+    List<T> items, {
+    bool bidirectional = true,
+  });
+
+  Future<SyncResult> pullFromServer<T extends SyncModel>(
+    String modelType,
+    DateTime? lastSyncTime,
+  );
+
+  Future<T?> createItem<T extends SyncModel>(T item);
+
+  Future<T?> updateItem<T extends SyncModel>(T item);
+
+  Future<bool> deleteItem<T extends SyncModel>(T item);
+
+  Future<List<T>> fetchItems<T extends SyncModel>(
+    String modelType, {
+    DateTime? since,
+  });
+}
