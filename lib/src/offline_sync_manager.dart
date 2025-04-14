@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:path_provider/path_provider.dart';
 
 import 'models/sync_model.dart';
 import 'models/sync_options.dart';
@@ -116,9 +115,6 @@ class OfflineSyncManager {
     if (_instance != null) {
       return _instance!;
     }
-
-    // Get application documents directory for storage if needed
-    final appDocDir = await getApplicationDocumentsDirectory();
 
     // Use provided options or create default options
     final options = syncOptions ?? const SyncOptions();

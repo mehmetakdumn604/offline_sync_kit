@@ -47,9 +47,11 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
 
     try {
       await OfflineSyncManager.instance.updateModel<Todo>(updatedTodo);
+      if (!mounted) return;
       Navigator.pop(context);
     } catch (e) {
       debugPrint('Error updating todo: $e');
+      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Error updating todo: $e')));
@@ -62,9 +64,11 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
         widget.todo.id,
         widget.todo.modelType,
       );
+      if (!mounted) return;
       Navigator.pop(context);
     } catch (e) {
       debugPrint('Error deleting todo: $e');
+      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Error deleting todo: $e')));
@@ -209,7 +213,7 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
     return showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (BuildContext context) {
+      builder: (BuildContext dialogContext) {
         return AlertDialog(
           title: const Text('Delete Todo'),
           content: const Text('Are you sure you want to delete this todo?'),
@@ -217,13 +221,13 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
             TextButton(
               child: const Text('Cancel'),
               onPressed: () {
-                Navigator.of(context).pop();
+                Navigator.of(dialogContext).pop();
               },
             ),
             TextButton(
               child: const Text('Delete'),
               onPressed: () {
-                Navigator.of(context).pop();
+                Navigator.of(dialogContext).pop();
                 _deleteTodo();
               },
             ),

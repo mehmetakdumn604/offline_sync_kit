@@ -19,7 +19,7 @@ Future<void> initSyncManager() async {
   await storageService.initialize();
 
   // Register model factory
-  (storageService as StorageServiceImpl).registerModelDeserializer<Todo>(
+  (storageService).registerModelDeserializer<Todo>(
     'todo',
     (json) => Todo.fromJson(json),
   );
