@@ -25,6 +25,10 @@ class _HomeScreenState extends State<HomeScreen> {
     _statusStream = OfflineSyncManager.instance.syncStatusStream;
     _loadTodos();
     _listenToSyncStatus();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _syncTodos();
+    });
   }
 
   void _listenToSyncStatus() {
@@ -40,9 +44,12 @@ class _HomeScreenState extends State<HomeScreen> {
       final todos = await OfflineSyncManager.instance.getAllModels<Todo>(
         'todo',
       );
+      final status = await OfflineSyncManager.instance.currentStatus;
+
       setState(() {
         _todos.clear();
         _todos.addAll(todos);
+        _syncStatus = status;
       });
     } catch (e) {
       debugPrint('Error loading todos: $e');
@@ -51,11 +58,28 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _syncTodos() async {
     try {
+      setState(() {
+        _syncStatus = _syncStatus.copyWith(isSyncing: true);
+      });
+
       final result = await OfflineSyncManager.instance.syncByModelType('todo');
       debugPrint('Sync result: ${result.status}');
-      _loadTodos();
+
+      final todos = await OfflineSyncManager.instance.getAllModels<Todo>(
+        'todo',
+      );
+      final status = await OfflineSyncManager.instance.currentStatus;
+
+      setState(() {
+        _todos.clear();
+        _todos.addAll(todos);
+        _syncStatus = status;
+      });
     } catch (e) {
       debugPrint('Error syncing todos: $e');
+      setState(() {
+        _syncStatus = _syncStatus.copyWith(isSyncing: false);
+      });
     }
   }
 
@@ -66,10 +90,32 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     try {
+      setState(() {
+        _todos.add(newTodo);
+        _syncStatus = _syncStatus.copyWith(
+          pendingChanges: _syncStatus.pendingChanges + 1,
+          isSyncing: true,
+        );
+      });
+
       await OfflineSyncManager.instance.saveModel<Todo>(newTodo);
-      _loadTodos();
+      await OfflineSyncManager.instance.syncByModelType('todo');
+
+      final todos = await OfflineSyncManager.instance.getAllModels<Todo>(
+        'todo',
+      );
+      final status = await OfflineSyncManager.instance.currentStatus;
+
+      setState(() {
+        _todos.clear();
+        _todos.addAll(todos);
+        _syncStatus = status;
+      });
     } catch (e) {
       debugPrint('Error adding todo: $e');
+      setState(() {
+        _syncStatus = _syncStatus.copyWith(isSyncing: false);
+      });
     }
   }
 
@@ -77,7 +123,10 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => TodoDetailScreen(todo: todo)),
-    ).then((_) => _loadTodos());
+    ).then((_) async {
+      await _syncTodos();
+      await _loadTodos();
+    });
   }
 
   @override

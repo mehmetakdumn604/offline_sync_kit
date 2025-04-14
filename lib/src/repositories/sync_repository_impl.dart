@@ -79,6 +79,7 @@ class SyncRepositoryImpl implements SyncRepository {
 
       if (result.isSuccessful) {
         processedItems++;
+        await _storageService.markAsSynced<T>(item.id, item.modelType);
       } else {
         failedItems++;
         if (result.errorMessages.isNotEmpty) {

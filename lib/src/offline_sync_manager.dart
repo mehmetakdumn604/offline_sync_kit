@@ -113,7 +113,8 @@ class OfflineSyncManager {
     await _storageService.save<T>(model);
 
     if (model.isSynced == false) {
-      _syncEngine.syncItem<T>(model);
+      await _syncEngine.syncItem<T>(model);
+      await _storageService.markAsSynced<T>(model.id, model.modelType);
     }
   }
 
@@ -156,6 +157,10 @@ class OfflineSyncManager {
 
   Future<SyncResult> syncByModelType(String modelType) async {
     return _syncEngine.syncByModelType(modelType);
+  }
+
+  Future<SyncResult> syncItem<T extends SyncModel>(T model) async {
+    return _syncEngine.syncItem<T>(model);
   }
 
   Future<SyncResult> pullFromServer<T extends SyncModel>(
