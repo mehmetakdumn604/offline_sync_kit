@@ -1,5 +1,3 @@
-library offline_sync_kit;
-
 export 'src/models/sync_model.dart';
 export 'src/models/sync_options.dart';
 export 'src/models/sync_status.dart';

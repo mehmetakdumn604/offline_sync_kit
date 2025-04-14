@@ -56,7 +56,6 @@ class OfflineSyncManager {
     }
 
     final appDocDir = await getApplicationDocumentsDirectory();
-    final dbPath = '${appDocDir.path}/offline_sync.db';
 
     final options = syncOptions ?? const SyncOptions();
     final connectivity = connectivityService ?? ConnectivityServiceImpl();
