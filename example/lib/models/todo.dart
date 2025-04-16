@@ -47,10 +47,12 @@ class Todo extends SyncModel {
     final Map<String, dynamic> delta = {'id': id};
 
     if (changedFields.contains('title')) delta['title'] = title;
-    if (changedFields.contains('description'))
+    if (changedFields.contains('description')) {
       delta['description'] = description;
-    if (changedFields.contains('isCompleted'))
+    }
+    if (changedFields.contains('isCompleted')) {
       delta['isCompleted'] = isCompleted;
+    }
     if (changedFields.contains('priority')) delta['priority'] = priority;
 
     return delta;

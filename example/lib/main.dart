@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:offline_sync_kit/offline_sync_kit.dart';
-import 'package:offline_sync_kit/src/models/conflict_resolution_strategy.dart';
 import 'models/todo.dart';
 import 'models/encryption_manager.dart';
 import 'screens/home_screen.dart';

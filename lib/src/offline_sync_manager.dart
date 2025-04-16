@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:encrypt/encrypt.dart' as encrypt;
+import 'package:flutter/foundation.dart';
 
 import 'models/sync_model.dart';
 import 'models/sync_options.dart';
@@ -146,7 +146,7 @@ class OfflineSyncManager {
       // Parse the decrypted JSON
       return jsonDecode(decryptedJson) as Map<String, dynamic>;
     } catch (e) {
-      print('Error decrypting data: $e');
+      debugPrint('Error decrypting data: $e');
       // Return the original data if decryption fails
       return data;
     }

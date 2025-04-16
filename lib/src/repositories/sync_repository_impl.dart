@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
+
 import '../models/sync_model.dart';
 import '../models/sync_result.dart';
 import '../network/network_client.dart';
@@ -129,7 +131,7 @@ class SyncRepositoryImpl implements SyncRepository {
         );
       }
     } catch (e) {
-      print('Error syncing delta for item ${item.id}: $e');
+      debugPrint('Error syncing delta for item ${item.id}: $e');
       // Mark as failed in case of exception
       final failedModel = item.markSyncFailed(e.toString()) as T;
       await _storageService.save<T>(failedModel);

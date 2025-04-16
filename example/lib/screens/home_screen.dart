@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:offline_sync_kit/offline_sync_kit.dart';
-import 'package:offline_sync_kit/src/models/conflict_resolution_strategy.dart';
 import '../models/todo.dart';
 import '../models/encryption_manager.dart';
 import 'todo_detail_screen.dart';
@@ -128,7 +127,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         );
       } else if (result.status == SyncResultStatus.failed) {
-        print('Sync failed: ${result.errorMessages.join(", ")}');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Sync failed: ${result.errorMessages.join(", ")}'),
@@ -178,7 +176,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return showDialog<void>(
       context: context,
-      builder: (context) {
+      builder: (_) {
         return AlertDialog(
           title: const Text('Add New Todo'),
           content: TextField(
@@ -244,7 +242,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void _showConflictStrategyDialog() {
     showDialog(
       context: context,
-      builder: (context) {
+      builder: (_) {
         return AlertDialog(
           title: const Text('Settings'),
           content: StatefulBuilder(
@@ -328,6 +326,7 @@ class _HomeScreenState extends State<HomeScreen> {
               child: const Text('Save'),
               onPressed: () async {
                 await _updateSettings();
+                if (!mounted) return;
                 Navigator.of(context).pop();
               },
             ),
@@ -485,7 +484,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     return Container(
-      color: color.withOpacity(0.1),
+      color: color.withValues(alpha: 0.1),
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
       child: Row(
         children: [
@@ -512,8 +511,6 @@ class _HomeScreenState extends State<HomeScreen> {
         return 'Last Update Wins';
       case ConflictResolutionStrategy.custom:
         return 'Custom';
-      default:
-        return 'Unknown';
     }
   }
 
@@ -691,6 +688,7 @@ class _HomeScreenState extends State<HomeScreen> {
             // Enable encryption with the provided key
             await _encryptionManager.enableEncryption(encryptionKey);
 
+            if (!mounted) return;
             ScaffoldMessenger.of(
               context,
             ).showSnackBar(const SnackBar(content: Text('Encryption enabled')));
@@ -704,6 +702,7 @@ class _HomeScreenState extends State<HomeScreen> {
           // User is disabling encryption
           await _encryptionManager.disableEncryption();
 
+          if (!mounted) return;
           ScaffoldMessenger.of(
             context,
           ).showSnackBar(const SnackBar(content: Text('Encryption disabled')));
@@ -711,6 +710,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     } catch (e) {
       debugPrint('Error updating settings: $e');
+      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Error updating settings: $e')));

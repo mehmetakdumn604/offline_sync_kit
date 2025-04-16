@@ -17,3 +17,5 @@ export 'src/network/default_network_client.dart';
 
 export 'src/sync_engine.dart';
 export 'src/offline_sync_manager.dart';
+
+export 'src/models/conflict_resolution_strategy.dart';

@@ -468,7 +468,7 @@ class SyncEngine {
 
     try {
       // Extract only the changed fields from the model
-      final deltaJson = item.toJsonDelta();
+      item.toJsonDelta();
 
       // Update the model using the main repo's updateItem method
       final updatedItem = await _repository.updateItem(item);
