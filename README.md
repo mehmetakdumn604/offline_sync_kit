@@ -20,6 +20,8 @@ Offline Sync Kit abstracts away these challenges by providing:
 - Network state monitoring with appropriate action handling
 - Configurable synchronization strategies with bidirectional sync capability
 - Conflict detection and resolution mechanisms
+- Optimized data transfer with delta synchronization
+- Enhanced security with optional data encryption
 
 ### Key Architectural Components
 
@@ -31,6 +33,7 @@ The package is built around several key components:
 4. **SyncEngine**: Handles the core synchronization logic with configurable strategies
 5. **NetworkClient**: Provides a flexible API client with a default HTTP implementation
 6. **ConnectivityService**: Monitors network state and triggers appropriate actions
+7. **ConflictResolutionHandler**: Manages different strategies for resolving data conflicts
 
 ### Real-World Applications
 
@@ -41,19 +44,26 @@ This package is particularly valuable for:
 - **Sales & Inventory Systems**: To update stock levels and process orders regardless of network availability
 - **Collaborative Tools**: That need to handle editing conflicts when multiple users modify the same data
 - **Data Collection Apps**: That gather information in remote locations for later synchronization
+- **Financial Applications**: That need secure, encrypted storage for sensitive information
 
 ## Features
 
-- Offline data storage and synchronization
-- Flexible and extensible structure
-- Works with different data types
-- Conflict management
-- Automatic synchronization
-- Internet connection monitoring
-- Synchronization status tracking
-- Exponential backoff for failed requests
-- Delta synchronization for bandwidth efficiency
-- Customizable synchronization policies
+- **Core Functionality**:
+  - Offline data storage and synchronization
+  - Flexible and extensible structure
+  - Works with different data types
+  - Automatic synchronization
+  - Internet connection monitoring
+  - Synchronization status tracking
+  - Exponential backoff for failed requests
+  - Customizable synchronization policies
+
+- **Advanced Features (New in v1.1.0)**:
+  - **Delta Synchronization**: Only sync changed fields to improve bandwidth efficiency
+  - **Advanced Conflict Resolution**: Multiple strategies including server-wins, client-wins, last-update-wins, and custom handlers
+  - **Optional Data Encryption**: Secure storage of sensitive information with configurable encryption keys
+  - **Performance Optimizations**: Batched synchronization and prioritized sync queue management
+  - **Extended Configuration Options**: Flexible sync intervals, batch size settings, and bidirectional sync controls
 
 ## Installation
 
@@ -77,6 +87,10 @@ class Todo extends SyncModel {
   final String title;
   final String description;
   final bool isCompleted;
+  final int priority;
+  
+  // New in v1.1.0: Track changed fields for delta sync
+  final Set<String> changedFields;
 
   Todo({
     super.id,
@@ -88,6 +102,8 @@ class Todo extends SyncModel {
     required this.title,
     this.description = '',
     this.isCompleted = false,
+    this.priority = 1,
+    this.changedFields = const {},
   });
 
   @override
@@ -103,12 +119,26 @@ class Todo extends SyncModel {
       'title': title,
       'description': description,
       'isCompleted': isCompleted,
+      'priority': priority,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
       'isSynced': isSynced,
       'syncError': syncError,
       'syncAttempts': syncAttempts,
+      'changedFields': changedFields.toList(),
     };
+  }
+  
+  // New in v1.1.0: Support for delta synchronization
+  Map<String, dynamic> toJsonDelta() {
+    final Map<String, dynamic> delta = {'id': id};
+    
+    if (changedFields.contains('title')) delta['title'] = title;
+    if (changedFields.contains('description')) delta['description'] = description;
+    if (changedFields.contains('isCompleted')) delta['isCompleted'] = isCompleted;
+    if (changedFields.contains('priority')) delta['priority'] = priority;
+    
+    return delta;
   }
 
   @override
@@ -122,6 +152,8 @@ class Todo extends SyncModel {
     String? title,
     String? description,
     bool? isCompleted,
+    int? priority,
+    Set<String>? changedFields,
   }) {
     return Todo(
       id: id ?? this.id,
@@ -133,15 +165,44 @@ class Todo extends SyncModel {
       title: title ?? this.title,
       description: description ?? this.description,
       isCompleted: isCompleted ?? this.isCompleted,
+      priority: priority ?? this.priority,
+      changedFields: changedFields ?? this.changedFields,
     );
+  }
+  
+  // Helper methods for updating fields (new in v1.1.0)
+  Todo updateTitle(String newTitle) {
+    final updatedFields = Set<String>.from(changedFields)..add('title');
+    return copyWith(title: newTitle, changedFields: updatedFields);
+  }
+  
+  Todo updateDescription(String newDescription) {
+    final updatedFields = Set<String>.from(changedFields)..add('description');
+    return copyWith(description: newDescription, changedFields: updatedFields);
+  }
+  
+  Todo updateCompletionStatus(bool completed) {
+    final updatedFields = Set<String>.from(changedFields)..add('isCompleted');
+    return copyWith(isCompleted: completed, changedFields: updatedFields);
+  }
+  
+  Todo updatePriority(int newPriority) {
+    final updatedFields = Set<String>.from(changedFields)..add('priority');
+    return copyWith(priority: newPriority, changedFields: updatedFields);
   }
 
   factory Todo.fromJson(Map<String, dynamic> json) {
+    final changedFieldsList = json['changedFields'] as List<dynamic>?;
+    final changedFields = changedFieldsList != null 
+        ? Set<String>.from(changedFieldsList.map((e) => e as String))
+        : <String>{};
+        
     return Todo(
       id: json['id'] as String?,
       title: json['title'] as String,
       description: json['description'] as String? ?? '',
       isCompleted: json['isCompleted'] as bool? ?? false,
+      priority: json['priority'] as int? ?? 1,
       createdAt: json['createdAt'] != null
           ? DateTime.parse(json['createdAt'] as String)
           : null,
@@ -151,6 +212,7 @@ class Todo extends SyncModel {
       isSynced: json['isSynced'] as bool? ?? false,
       syncError: json['syncError'] as String? ?? '',
       syncAttempts: json['syncAttempts'] as int? ?? 0,
+      changedFields: changedFields,
     );
   }
 }
@@ -158,10 +220,11 @@ class Todo extends SyncModel {
 
 ### 2. Initializing the Synchronization Manager
 
-Configure the `OfflineSyncManager` during your application initialization:
+Configure the `OfflineSyncManager` during your application initialization with advanced options:
 
 ```dart
 import 'package:offline_sync_kit/offline_sync_kit.dart';
+import 'package:offline_sync_kit/src/models/conflict_resolution_strategy.dart';
 
 Future<void> initSyncManager() async {
   // Specify your API base URL here
@@ -176,9 +239,26 @@ Future<void> initSyncManager() async {
     (json) => Todo.fromJson(json),
   );
   
+  // Advanced configuration options (new in v1.1.0)
+  final syncOptions = SyncOptions(
+    syncInterval: const Duration(minutes: 5),
+    useDeltaSync: true,
+    conflictStrategy: ConflictResolutionStrategy.lastUpdateWins,
+    batchSize: 10,
+    autoSync: true,
+    bidirectionalSync: true,
+  );
+  
+  // Enable encryption with a secure key (new in v1.1.0)
+  final encryptionEnabled = true;
+  final encryptionKey = 'your-secure-encryption-key';
+  
   await OfflineSyncManager.initialize(
     baseUrl: baseUrl,
     storageService: storageService,
+    syncOptions: syncOptions,
+    encryptionEnabled: encryptionEnabled,
+    encryptionKey: encryptionKey,
   );
   
   // Register TodoModel with OfflineSyncManager
@@ -202,13 +282,14 @@ final newTodo = Todo(
 await OfflineSyncManager.instance.saveModel<Todo>(newTodo);
 ```
 
-#### Updating Data
+#### Updating Data with Delta Synchronization
 
 ```dart
-final updatedTodo = todo.copyWith(
-  title: 'Updated title',
-  isCompleted: true,
-);
+// Only the title will be synchronized with the server
+final updatedTodo = todo.updateTitle('Updated title');
+
+// Only the completion status will be synchronized with the server
+final completedTodo = todo.updateCompletionStatus(true);
 
 await OfflineSyncManager.instance.updateModel<Todo>(updatedTodo);
 ```
@@ -264,6 +345,41 @@ OfflineSyncManager.instance.syncStatusStream.listen((status) {
 
 // Get current status
 final status = await OfflineSyncManager.instance.currentStatus;
+```
+
+### 6. Handling Conflicts (New in v1.1.0)
+
+```dart
+// Set up a custom conflict handler
+final customConflictResolver = (SyncConflict conflict) {
+  // Custom logic to resolve conflicts
+  if (conflict.localVersion.updatedAt.isAfter(conflict.serverVersion.updatedAt)) {
+    return conflict.localVersion; // Local changes win
+  } else {
+    return conflict.serverVersion; // Server changes win
+  }
+};
+
+// Configure with custom conflict resolution
+final syncOptions = SyncOptions(
+  conflictStrategy: ConflictResolutionStrategy.custom,
+  conflictResolver: customConflictResolver,
+);
+
+OfflineSyncManager.instance.updateSyncOptions(syncOptions);
+```
+
+### 7. Managing Encryption (New in v1.1.0)
+
+```dart
+// Enable encryption
+await OfflineSyncManager.instance.enableEncryption('secure-encryption-key');
+
+// Disable encryption (data will be decrypted)
+await OfflineSyncManager.instance.disableEncryption();
+
+// Check encryption status
+final isEncrypted = OfflineSyncManager.instance.isEncryptionEnabled;
 ```
 
 ## Example App
