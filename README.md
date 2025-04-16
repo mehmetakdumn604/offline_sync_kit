@@ -61,7 +61,7 @@ To add the package to your project, add the following lines to your `pubspec.yam
 
 ```yaml
 dependencies:
-  offline_sync_kit: ^1.0.0
+  offline_sync_kit: ^1.1.0
 ```
 
 ## Usage

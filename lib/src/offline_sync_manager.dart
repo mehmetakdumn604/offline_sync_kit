@@ -1,4 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
+import 'package:crypto/crypto.dart';
+import 'package:encrypt/encrypt.dart' as encrypt;
 
 import 'models/sync_model.dart';
 import 'models/sync_options.dart';
@@ -61,6 +65,98 @@ class OfflineSyncManager {
   /// Subscription to the connectivity service's connection stream
   late StreamSubscription<bool> _connectivitySubscription;
 
+  /// Enables encryption for synced data
+  ///
+  /// When enabled, models will be encrypted before sending to the server and
+  /// decrypted after retrieval. This adds security but reduces server-side
+  /// searchability.
+  ///
+  /// [encryptionKey] A secure key used for encryption/decryption
+  /// [ivLength] Initialization vector length (16 bytes recommended)
+  void enableEncryption(String encryptionKey, {int ivLength = 16}) {
+    final keyBytes = sha256.convert(utf8.encode(encryptionKey)).bytes;
+    final key = encrypt.Key(Uint8List.fromList(keyBytes));
+    final iv = encrypt.IV.fromLength(ivLength);
+    _encrypter = encrypt.Encrypter(encrypt.AES(key));
+    _encryptionIV = iv;
+    _encryptionEnabled = true;
+  }
+
+  /// Disables encryption for synced data
+  void disableEncryption() {
+    _encryptionEnabled = false;
+    _encrypter = null;
+    _encryptionIV = null;
+  }
+
+  /// Encrypts data before sending to server (if encryption is enabled)
+  ///
+  /// This is used internally by the sync system to encrypt data when
+  /// encryption is enabled.
+  ///
+  /// [data] The data to encrypt
+  /// Returns the encrypted data or original data if encryption is disabled
+  Map<String, dynamic> _encryptDataIfEnabled(Map<String, dynamic> data) {
+    if (!_encryptionEnabled || _encrypter == null) {
+      return data;
+    }
+
+    // Don't encrypt the ID field so the server can still identify records
+    final id = data['id'];
+    final modelType = data['modelType'];
+
+    // Encrypt the entire data object
+    final dataJson = jsonEncode(data);
+    final encrypted = _encrypter!.encrypt(dataJson, iv: _encryptionIV!);
+
+    // Return a map with the ID and the encrypted data
+    return {
+      'id': id,
+      'modelType': modelType,
+      'encrypted': true,
+      'data': encrypted.base64,
+    };
+  }
+
+  /// Decrypts data received from server (if encryption is enabled)
+  ///
+  /// This is used internally by the sync system to decrypt data when
+  /// encryption is enabled.
+  ///
+  /// [data] The data to decrypt
+  /// Returns the decrypted data or original data if encryption is disabled
+  Map<String, dynamic> _decryptDataIfNeeded(Map<String, dynamic> data) {
+    if (!_encryptionEnabled || _encrypter == null) {
+      return data;
+    }
+
+    // Skip decryption if not encrypted
+    if (data['encrypted'] != true || data['data'] == null) {
+      return data;
+    }
+
+    try {
+      // Decrypt the data field
+      final encryptedData = encrypt.Encrypted.fromBase64(data['data']);
+      final decryptedJson = _encrypter!.decrypt(
+        encryptedData,
+        iv: _encryptionIV!,
+      );
+
+      // Parse the decrypted JSON
+      return jsonDecode(decryptedJson) as Map<String, dynamic>;
+    } catch (e) {
+      print('Error decrypting data: $e');
+      // Return the original data if decryption fails
+      return data;
+    }
+  }
+
+  // Add encryption-related properties
+  bool _encryptionEnabled = false;
+  encrypt.Encrypter? _encrypter;
+  encrypt.IV? _encryptionIV;
+
   /// Private constructor, use [initialize] instead
   ///
   /// This constructor is private to enforce the singleton pattern.
@@ -110,6 +206,8 @@ class OfflineSyncManager {
     ConnectivityService? connectivityService,
     StorageService? storageService,
     SyncOptions? syncOptions,
+    bool enableEncryption = false,
+    String? encryptionKey,
   }) async {
     // Return existing instance if already initialized
     if (_instance != null) {
@@ -155,6 +253,21 @@ class OfflineSyncManager {
       storageService: storage,
       connectivityService: connectivity,
     );
+
+    // Set up encryption if enabled
+    if (enableEncryption && encryptionKey != null) {
+      _instance!.enableEncryption(encryptionKey);
+
+      // If using the default network client, set up its encryption handlers
+      if (defaultNetworkClient is DefaultNetworkClient) {
+        defaultNetworkClient.setEncryptionHandler(
+          _instance!._encryptDataIfEnabled,
+        );
+        defaultNetworkClient.setDecryptionHandler(
+          _instance!._decryptDataIfNeeded,
+        );
+      }
+    }
 
     return _instance!;
   }
@@ -202,6 +315,7 @@ class OfflineSyncManager {
     // Only trigger synchronization if the model is not already synced
     if (!model.isSynced) {
       // Wait for synchronization to complete
+      // If encryption is enabled, the data will be encrypted before sending
       await _syncEngine.syncItem<T>(model);
       // Mark the model as synced to prevent future sync attempts
       await _storageService.markAsSynced<T>(model.id, model.modelType);
@@ -232,21 +346,100 @@ class OfflineSyncManager {
     }
   }
 
-  /// Updates an existing model in local storage and synchronizes it if needed
+  /// Updates a model in local storage and marks it for sync
   ///
-  /// Parameters:
-  /// - [model]: The model instance to update
+  /// This method:
+  /// 1. Saves the updated model to local storage
+  /// 2. Marks the model as not synced (if it wasn't already)
+  /// 3. Returns the updated model instance from storage
   ///
-  /// If the model is not already synced, it will be synchronized automatically.
-  /// Use this method when you want to update an existing model's properties.
-  Future<void> updateModel<T extends SyncModel>(T model) async {
-    // Update the model in local storage
-    await _storageService.update<T>(model);
+  /// @param model The model to update
+  /// @return A Future containing the updated model
+  Future<T> updateModel<T extends SyncModel>(T model) async {
+    // Mark as not synced if it was previously synced
+    final modelToSave =
+        model.isSynced ? model.copyWith(isSynced: false) as T : model;
 
-    // Only trigger synchronization if the model is not already synced
-    if (!model.isSynced) {
-      await _syncEngine.syncItem<T>(model);
+    await _storageService.save<T>(modelToSave);
+    await _syncEngine.updateSyncStatus();
+
+    return modelToSave;
+  }
+
+  /// Updates specific fields of a model for delta synchronization
+  ///
+  /// This method:
+  /// 1. Gets the existing model from storage
+  /// 2. Updates only the specified fields
+  /// 3. Tracks which fields were changed
+  /// 4. Saves the updated model to storage
+  /// 5. Marks the model as not synced
+  ///
+  /// @param modelType The type of model to update
+  /// @param id The ID of the model to update
+  /// @param changes Map of field names to new values
+  /// @return A Future containing the updated model
+  Future<T?> updateModelFields<T extends SyncModel>(
+    String modelType,
+    String id,
+    Map<String, dynamic> changes,
+  ) async {
+    final existingModel = await getModel<T>(modelType, id);
+
+    if (existingModel == null) {
+      return null;
     }
+
+    // Create a model factory for this type
+    final factory = _modelFactories[modelType];
+    if (factory == null) {
+      throw Exception('No model factory registered for $modelType');
+    }
+
+    // Convert existing model to JSON
+    final modelJson = existingModel.toJson();
+
+    // Apply changes
+    modelJson.addAll(changes);
+
+    // Create updated model with tracked changed fields
+    final Set<String> changedFields = {
+      ...(existingModel.changedFields),
+      ...changes.keys,
+    };
+    modelJson['changedFields'] = changedFields.toList();
+
+    // Create new model instance
+    final updatedModel = factory(modelJson) as T;
+
+    // Save with isSynced = false
+    final modelToSave = updatedModel.copyWith(isSynced: false) as T;
+    await _storageService.save<T>(modelToSave);
+    await _syncEngine.updateSyncStatus();
+
+    return modelToSave;
+  }
+
+  /// Synchronizes a specific model instance using delta synchronization
+  ///
+  /// This method will only send changed fields to the server instead of the entire model.
+  /// If the model has no changed fields, it will be skipped.
+  /// If encryption is enabled, the data will be encrypted before sending to the server.
+  ///
+  /// @param model The model to sync with the server
+  /// @param options Optional synchronization options
+  /// @return A Future containing the sync result
+  Future<SyncResult> syncItemDelta<T extends SyncModel>(
+    T model, {
+    SyncOptions? options,
+  }) async {
+    if (!model.hasChanges) {
+      // Skip if no fields have changed
+      return SyncResult.success(processedItems: 0);
+    }
+
+    // If encryption is enabled, the data will be encrypted in the network client
+    return _syncEngine.syncItemDelta<T>(model, options: options);
   }
 
   /// Deletes a model from local storage
@@ -322,20 +515,19 @@ class OfflineSyncManager {
     return _syncEngine.syncItem<T>(model);
   }
 
-  /// Fetches models from the server and saves them to local storage
+  /// Pulls data from the server and decrypts it if encryption is enabled
   ///
-  /// Parameters:
-  /// - [modelType]: The type of models to fetch
-  /// - [since]: Optional timestamp to fetch only models updated since that time
+  /// This method fetches data from the remote server and decrypts it
+  /// before saving to local storage.
   ///
-  /// Returns a [SyncResult] containing the outcome of the operation
-  ///
-  /// This method is particularly useful for downloading new or updated data from
-  /// the server to ensure the local database is up-to-date.
+  /// @param modelType The type of model to fetch
+  /// @param since Optional timestamp to only fetch models updated since then
+  /// @return A Future containing the sync result
   Future<SyncResult> pullFromServer<T extends SyncModel>(
     String modelType, {
     DateTime? since,
   }) async {
+    // If encryption is enabled, the data will be decrypted automatically
     return _syncEngine.pullFromServer<T>(modelType, since: since);
   }
 

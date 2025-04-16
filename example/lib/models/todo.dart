@@ -13,6 +13,7 @@ class Todo extends SyncModel {
     super.isSynced,
     super.syncError,
     super.syncAttempts,
+    super.changedFields,
     required this.title,
     this.description = '',
     this.isCompleted = false,
@@ -42,6 +43,20 @@ class Todo extends SyncModel {
   }
 
   @override
+  Map<String, dynamic> toJsonDelta() {
+    final Map<String, dynamic> delta = {'id': id};
+
+    if (changedFields.contains('title')) delta['title'] = title;
+    if (changedFields.contains('description'))
+      delta['description'] = description;
+    if (changedFields.contains('isCompleted'))
+      delta['isCompleted'] = isCompleted;
+    if (changedFields.contains('priority')) delta['priority'] = priority;
+
+    return delta;
+  }
+
+  @override
   Todo copyWith({
     String? id,
     DateTime? createdAt,
@@ -49,6 +64,7 @@ class Todo extends SyncModel {
     bool? isSynced,
     String? syncError,
     int? syncAttempts,
+    Set<String>? changedFields,
     String? title,
     String? description,
     bool? isCompleted,
@@ -61,6 +77,7 @@ class Todo extends SyncModel {
       isSynced: isSynced ?? this.isSynced,
       syncError: syncError ?? this.syncError,
       syncAttempts: syncAttempts ?? this.syncAttempts,
+      changedFields: changedFields ?? this.changedFields,
       title: title ?? this.title,
       description: description ?? this.description,
       isCompleted: isCompleted ?? this.isCompleted,
@@ -69,6 +86,14 @@ class Todo extends SyncModel {
   }
 
   factory Todo.fromJson(Map<String, dynamic> json) {
+    Set<String>? changedFields;
+    if (json['changedFields'] != null) {
+      final fieldsList = json['changedFields'] as List<dynamic>?;
+      if (fieldsList != null) {
+        changedFields = fieldsList.map((e) => e as String).toSet();
+      }
+    }
+
     return Todo(
       id: json['id'] as String? ?? '',
       title: json['title'] as String? ?? '',
@@ -86,6 +111,40 @@ class Todo extends SyncModel {
       isSynced: json['isSynced'] as bool? ?? false,
       syncError: json['syncError'] as String? ?? '',
       syncAttempts: json['syncAttempts'] as int? ?? 0,
+      changedFields: changedFields,
+    );
+  }
+
+  // Yardımcı metotlar - delta senkronizasyon için alanları değiştirme
+  Todo updateTitle(String newTitle) {
+    return copyWith(
+      title: newTitle,
+      changedFields: {...changedFields, 'title'},
+      isSynced: false,
+    );
+  }
+
+  Todo updateDescription(String newDescription) {
+    return copyWith(
+      description: newDescription,
+      changedFields: {...changedFields, 'description'},
+      isSynced: false,
+    );
+  }
+
+  Todo updateCompletionStatus(bool isCompleted) {
+    return copyWith(
+      isCompleted: isCompleted,
+      changedFields: {...changedFields, 'isCompleted'},
+      isSynced: false,
+    );
+  }
+
+  Todo updatePriority(int newPriority) {
+    return copyWith(
+      priority: newPriority,
+      changedFields: {...changedFields, 'priority'},
+      isSynced: false,
     );
   }
 }

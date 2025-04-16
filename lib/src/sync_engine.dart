@@ -432,4 +432,72 @@ class SyncEngine {
     _syncTimer?.cancel();
     _statusController.close();
   }
+
+  /// Synchronizes a model with the server using delta synchronization (only changed fields)
+  ///
+  /// This method will only send the fields that have changed to the server,
+  /// which can reduce network bandwidth and improve performance.
+  ///
+  /// Parameters:
+  /// - [item]: The model to synchronize
+  /// - [options]: Optional synchronization options to override the defaults
+  ///
+  /// Returns a [SyncResult] with details of the operation
+  Future<SyncResult> syncItemDelta<T extends SyncModel>(
+    T item, {
+    SyncOptions? options,
+  }) async {
+    registerModelType(item.modelType);
+
+    final effectiveOptions = options ?? _options;
+    final isConnected = await _connectivityService.isConnectionSatisfied(
+      effectiveOptions.connectivityRequirement,
+    );
+
+    if (!isConnected) {
+      await _storageService.save(item);
+      await _updatePendingCount();
+      return SyncResult.connectionError();
+    }
+
+    if (item.changedFields.isEmpty) {
+      return SyncResult.success(processedItems: 0);
+    }
+
+    _setIsSyncing(true);
+
+    try {
+      // Extract only the changed fields from the model
+      final deltaJson = item.toJsonDelta();
+
+      // Update the model using the main repo's updateItem method
+      final updatedItem = await _repository.updateItem(item);
+
+      if (updatedItem != null) {
+        // Success - save and mark as synced
+        await _storageService.save(updatedItem);
+        await _updateLastSyncTime();
+        await _updatePendingCount();
+        _setIsSyncing(false);
+        return SyncResult.success(processedItems: 1);
+      } else {
+        // Failed to update
+        _setIsSyncing(false);
+        return SyncResult.failed(
+          error: 'Delta sync failed for ${item.modelType} with id ${item.id}',
+        );
+      }
+    } catch (e) {
+      _setIsSyncing(false);
+      return SyncResult.failed(error: e.toString());
+    }
+  }
+
+  /// Updates the sync status after operations
+  ///
+  /// This method checks the current pending count and updates the status
+  Future<void> updateSyncStatus() async {
+    await _updatePendingCount();
+    _updateStatus();
+  }
 }

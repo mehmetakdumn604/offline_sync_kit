@@ -5,6 +5,21 @@ import '../models/sync_result.dart';
 abstract class SyncRepository {
   Future<SyncResult> syncItem<T extends SyncModel>(T item);
 
+  /// Synchronizes only the changed fields of an item with the server
+  ///
+  /// This method sends only the delta (changed fields) of the model to reduce
+  /// bandwidth and improve performance.
+  ///
+  /// Parameters:
+  /// - [item]: The model to synchronize
+  /// - [changedFields]: Map of field names to their new values
+  ///
+  /// Returns a [SyncResult] with the outcome of the operation
+  Future<SyncResult> syncDelta<T extends SyncModel>(
+    T item,
+    Map<String, dynamic> changedFields,
+  );
+
   Future<SyncResult> syncAll<T extends SyncModel>(
     List<T> items, {
     bool bidirectional = true,

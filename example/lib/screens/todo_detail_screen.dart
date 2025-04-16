@@ -16,16 +16,19 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
   late TextEditingController _descriptionController;
   late bool _isCompleted;
   late int _priority;
+  late Todo _currentTodo;
+  bool _useDeltaSync = true; // Delta sync enabled by default
 
   @override
   void initState() {
     super.initState();
-    _titleController = TextEditingController(text: widget.todo.title);
+    _currentTodo = widget.todo;
+    _titleController = TextEditingController(text: _currentTodo.title);
     _descriptionController = TextEditingController(
-      text: widget.todo.description,
+      text: _currentTodo.description,
     );
-    _isCompleted = widget.todo.isCompleted;
-    _priority = widget.todo.priority;
+    _isCompleted = _currentTodo.isCompleted;
+    _priority = _currentTodo.priority;
   }
 
   @override
@@ -36,17 +39,69 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
   }
 
   Future<void> _saveTodo() async {
-    final updatedTodo = widget.todo.copyWith(
-      title: _titleController.text,
-      description: _descriptionController.text,
-      isCompleted: _isCompleted,
-      priority: _priority,
-      updatedAt: DateTime.now(),
-      isSynced: false,
-    );
-
     try {
-      await OfflineSyncManager.instance.updateModel<Todo>(updatedTodo);
+      if (_useDeltaSync) {
+        // Update only changed fields using delta sync
+        Todo updatedTodo = _currentTodo;
+
+        // Only update fields that have changed
+        if (_titleController.text != _currentTodo.title) {
+          updatedTodo = updatedTodo.updateTitle(_titleController.text);
+        }
+
+        if (_descriptionController.text != _currentTodo.description) {
+          updatedTodo = updatedTodo.updateDescription(
+            _descriptionController.text,
+          );
+        }
+
+        if (_isCompleted != _currentTodo.isCompleted) {
+          updatedTodo = updatedTodo.updateCompletionStatus(_isCompleted);
+        }
+
+        if (_priority != _currentTodo.priority) {
+          updatedTodo = updatedTodo.updatePriority(_priority);
+        }
+
+        if (updatedTodo.hasChanges) {
+          // Save only changed fields
+          await OfflineSyncManager.instance.updateModel<Todo>(updatedTodo);
+
+          // Sync using delta sync
+          await OfflineSyncManager.instance.syncItemDelta<Todo>(updatedTodo);
+
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Changed fields saved (Delta)')),
+          );
+        } else {
+          if (!mounted) return;
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('No fields changed')));
+        }
+      } else {
+        // Update the entire model - standard method
+        final updatedTodo = _currentTodo.copyWith(
+          title: _titleController.text,
+          description: _descriptionController.text,
+          isCompleted: _isCompleted,
+          priority: _priority,
+          updatedAt: DateTime.now(),
+          isSynced: false,
+        );
+
+        await OfflineSyncManager.instance.updateModel<Todo>(updatedTodo);
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Todo saved')));
+      }
+
+      // Pull latest data from server
+      await OfflineSyncManager.instance.pullFromServer<Todo>('todo');
+
       if (!mounted) return;
       Navigator.pop(context);
     } catch (e) {
@@ -54,15 +109,15 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Error updating todo: $e')));
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
     }
   }
 
   Future<void> _deleteTodo() async {
     try {
       await OfflineSyncManager.instance.deleteModel<Todo>(
-        widget.todo.id,
-        widget.todo.modelType,
+        _currentTodo.id,
+        _currentTodo.modelType,
       );
       if (!mounted) return;
       Navigator.pop(context);
@@ -71,7 +126,7 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Error deleting todo: $e')));
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
     }
   }
 
@@ -143,12 +198,24 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
               ],
             ),
             const SizedBox(height: 16),
+            SwitchListTile(
+              title: const Text('Delta Synchronization'),
+              subtitle: const Text('Only send changed fields (faster)'),
+              value: _useDeltaSync,
+              onChanged: (value) {
+                setState(() {
+                  _useDeltaSync = value;
+                });
+              },
+            ),
+            const SizedBox(height: 16),
             _buildSyncStatus(),
           ],
         ),
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _saveTodo,
+        tooltip: 'Save',
         child: const Icon(Icons.save),
       ),
     );
@@ -163,40 +230,54 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Sync Status', style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              'Synchronization Status',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 8),
             Row(
               children: [
                 Icon(
-                  widget.todo.isSynced
+                  _currentTodo.isSynced
                       ? Icons.check_circle
                       : Icons.sync_problem,
-                  color: widget.todo.isSynced ? Colors.green : Colors.orange,
+                  color: _currentTodo.isSynced ? Colors.green : Colors.orange,
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  widget.todo.isSynced ? 'Synced' : 'Not synced',
+                  _currentTodo.isSynced ? 'Synced' : 'Not Synced',
                   style: textStyle,
                 ),
               ],
             ),
             const SizedBox(height: 4),
             Text(
-              'Created: ${_formatDate(widget.todo.createdAt)}',
+              'Created: ${_formatDate(_currentTodo.createdAt)}',
               style: textStyle,
             ),
             Text(
-              'Updated: ${_formatDate(widget.todo.updatedAt)}',
+              'Updated: ${_formatDate(_currentTodo.updatedAt)}',
               style: textStyle,
             ),
-            if (widget.todo.syncError.isNotEmpty)
+            if (_currentTodo.hasChanges)
+              Row(
+                children: [
+                  const Icon(Icons.edit, size: 16, color: Colors.blue),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Changed fields: ${_currentTodo.changedFields.join(", ")}',
+                    style: textStyle?.copyWith(color: Colors.blue),
+                  ),
+                ],
+              ),
+            if (_currentTodo.syncError.isNotEmpty)
               Text(
-                'Error: ${widget.todo.syncError}',
+                'Error: ${_currentTodo.syncError}',
                 style: textStyle?.copyWith(color: Colors.red),
               ),
-            if (widget.todo.syncAttempts > 0)
+            if (_currentTodo.syncAttempts > 0)
               Text(
-                'Sync attempts: ${widget.todo.syncAttempts}',
+                'Sync attempts: ${_currentTodo.syncAttempts}',
                 style: textStyle,
               ),
           ],
@@ -205,35 +286,31 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
     );
   }
 
-  String _formatDate(DateTime date) {
-    return '${date.day}/${date.month}/${date.year} ${date.hour}:${date.minute}';
+  void _showDeleteConfirmation(BuildContext context) {
+    showDialog(
+      context: context,
+      builder:
+          (ctx) => AlertDialog(
+            title: const Text('Delete Todo'),
+            content: const Text('Are you sure you want to delete this item?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.of(ctx).pop();
+                  _deleteTodo();
+                },
+                child: const Text('Delete'),
+              ),
+            ],
+          ),
+    );
   }
 
-  Future<void> _showDeleteConfirmation(BuildContext context) async {
-    return showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext dialogContext) {
-        return AlertDialog(
-          title: const Text('Delete Todo'),
-          content: const Text('Are you sure you want to delete this todo?'),
-          actions: <Widget>[
-            TextButton(
-              child: const Text('Cancel'),
-              onPressed: () {
-                Navigator.of(dialogContext).pop();
-              },
-            ),
-            TextButton(
-              child: const Text('Delete'),
-              onPressed: () {
-                Navigator.of(dialogContext).pop();
-                _deleteTodo();
-              },
-            ),
-          ],
-        );
-      },
-    );
+  String _formatDate(DateTime date) {
+    return '${date.day}/${date.month}/${date.year} ${date.hour}:${date.minute}';
   }
 }

@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 ///
 /// All models that should be synchronized with a remote API should extend this class.
 /// It includes all necessary properties for tracking sync state (sync status, timestamps, etc.).
+/// Supports delta synchronization by tracking which fields have been changed since last sync.
 ///
 /// Example:
 /// ```dart
@@ -17,6 +18,7 @@ import 'package:uuid/uuid.dart';
 ///     super.createdAt,
 ///     super.updatedAt,
 ///     super.isSynced,
+///     super.changedFields,
 ///     required this.title,
 ///     this.isCompleted = false,
 ///   });
@@ -37,8 +39,23 @@ import 'package:uuid/uuid.dart';
 ///   }
 ///
 ///   @override
+///   Map<String, dynamic> toJsonDelta() {
+///     final Map<String, dynamic> delta = {'id': id};
+///     if (changedFields.contains('title')) delta['title'] = title;
+///     if (changedFields.contains('isCompleted')) delta['isCompleted'] = isCompleted;
+///     return delta;
+///   }
+///
+///   @override
 ///   Todo copyWith({...}) {
 ///     // Implementation
+///   }
+///
+///   Todo updateTitle(String newTitle) {
+///     return copyWith(
+///       title: newTitle,
+///       changedFields: {...changedFields, 'title'},
+///     );
 ///   }
 /// }
 /// ```
@@ -61,6 +78,10 @@ abstract class SyncModel extends Equatable {
   /// Number of failed sync attempts for this model
   final int syncAttempts;
 
+  /// Set of field names that have been changed since last sync
+  /// Used for delta synchronization to only send changed fields
+  final Set<String> changedFields;
+
   /// Creates a new SyncModel instance
   ///
   /// If [id] is not provided, a new UUID v4 will be generated
@@ -73,9 +94,11 @@ abstract class SyncModel extends Equatable {
     this.isSynced = false,
     this.syncError = '',
     this.syncAttempts = 0,
+    Set<String>? changedFields,
   }) : id = id ?? const Uuid().v4(),
        createdAt = createdAt ?? DateTime.now(),
-       updatedAt = updatedAt ?? DateTime.now();
+       updatedAt = updatedAt ?? DateTime.now(),
+       changedFields = changedFields ?? <String>{};
 
   /// The API endpoint for this model type (without leading slash)
   ///
@@ -91,6 +114,14 @@ abstract class SyncModel extends Equatable {
   /// Converts the model to a JSON map for API requests and storage
   Map<String, dynamic> toJson();
 
+  /// Converts only the changed fields to a JSON map for delta synchronization
+  ///
+  /// By default uses the full toJson() but subclasses should override
+  /// this to implement proper delta synchronization
+  Map<String, dynamic> toJsonDelta() {
+    return toJson();
+  }
+
   /// Creates a copy of this model with optionally modified properties
   ///
   /// Allows updating a model immutably. Make sure to implement
@@ -102,13 +133,20 @@ abstract class SyncModel extends Equatable {
     bool? isSynced,
     String? syncError,
     int? syncAttempts,
+    Set<String>? changedFields,
   });
 
   /// Marks this model as successfully synchronized with the server
   ///
-  /// Returns a new instance with [isSynced] = true and cleared [syncError]
+  /// Returns a new instance with [isSynced] = true, cleared [syncError],
+  /// and empty [changedFields] since all changes are now synced
   SyncModel markAsSynced() {
-    return copyWith(isSynced: true, syncError: '', updatedAt: DateTime.now());
+    return copyWith(
+      isSynced: true,
+      syncError: '',
+      updatedAt: DateTime.now(),
+      changedFields: <String>{},
+    );
   }
 
   /// Marks this model as failed to synchronize
@@ -124,6 +162,9 @@ abstract class SyncModel extends Equatable {
     );
   }
 
+  /// Returns true if this model has any unsynchronized changes
+  bool get hasChanges => changedFields.isNotEmpty;
+
   @override
   List<Object?> get props => [
     id,
@@ -132,5 +173,6 @@ abstract class SyncModel extends Equatable {
     isSynced,
     syncError,
     syncAttempts,
+    changedFields,
   ];
 }
