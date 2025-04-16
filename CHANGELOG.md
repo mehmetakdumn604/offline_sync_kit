@@ -1,3 +1,8 @@
+## 1.2.0
+
+* Added github address to pubspec.yaml file.
+* Readme file updated.
+
 ## 1.1.0
 
 * Advanced conflict resolution strategies:
