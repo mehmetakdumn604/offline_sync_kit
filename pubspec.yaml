@@ -1,7 +1,7 @@
 name: offline_sync_kit
 description: "Flutter package for offline data storage and synchronization with remote APIs."
 version: 1.1.0
-homepage: https://github.com/yourusername/offline_sync_kit
+homepage: https://github.com/CanArslanDev/offline_sync_kit
 
 environment:
   sdk: ^3.7.0
