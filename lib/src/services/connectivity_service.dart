@@ -21,8 +21,8 @@ class ConnectivityServiceImpl implements ConnectivityService {
 
   Future<void> _initConnectivity() async {
     try {
-      final result = await _connectivity.checkConnectivity();
-      _updateConnectionStatus(result);
+      final results = await _connectivity.checkConnectivity();
+      _updateConnectionStatus(results);
     } catch (e) {
       _connectionSubject.add(false);
     }
@@ -32,8 +32,10 @@ class ConnectivityServiceImpl implements ConnectivityService {
     _connectivity.onConnectivityChanged.listen(_updateConnectionStatus);
   }
 
-  void _updateConnectionStatus(ConnectivityResult result) {
-    final isConnected = result != ConnectivityResult.none;
+  void _updateConnectionStatus(List<ConnectivityResult> results) {
+    final isConnected =
+        results.isNotEmpty &&
+        results.any((result) => result != ConnectivityResult.none);
     _connectionSubject.add(isConnected);
   }
 
