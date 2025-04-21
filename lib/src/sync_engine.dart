@@ -320,6 +320,7 @@ class SyncEngine {
   Future<SyncResult> pullFromServer<T extends SyncModel>(
     String modelType, {
     DateTime? since,
+    Map<String, dynamic Function(Map<String, dynamic>)>? modelFactories,
   }) async {
     final isConnected = await _connectivityService.isConnectionSatisfied(
       _options.connectivityRequirement,
@@ -335,6 +336,7 @@ class SyncEngine {
       final result = await _repository.pullFromServer<T>(
         modelType,
         since ?? _lastSyncTime,
+        modelFactories: modelFactories,
       );
 
       await _updateLastSyncTime();

@@ -182,7 +182,18 @@ class SyncRepositoryImpl implements SyncRepository {
     if (bidirectional && items.isNotEmpty) {
       final modelType = items.first.modelType;
       final lastSyncTime = await _storageService.getLastSyncTime();
-      await pullFromServer<T>(modelType, lastSyncTime);
+
+      // Get model factory from first item's type if available
+      final modelFactory = items.first.toJson;
+      Map<String, dynamic Function(Map<String, dynamic>)> factoryMap = {
+        modelType: (json) => modelFactory as dynamic,
+      };
+
+      await pullFromServer<T>(
+        modelType,
+        lastSyncTime,
+        modelFactories: factoryMap,
+      );
       await _storageService.setLastSyncTime(DateTime.now());
     }
 
@@ -219,10 +230,15 @@ class SyncRepositoryImpl implements SyncRepository {
   @override
   Future<SyncResult> pullFromServer<T extends SyncModel>(
     String modelType,
-    DateTime? lastSyncTime,
-  ) async {
+    DateTime? lastSyncTime, {
+    Map<String, dynamic Function(Map<String, dynamic>)>? modelFactories,
+  }) async {
     try {
-      final items = await fetchItems<T>(modelType, since: lastSyncTime);
+      final items = await fetchItems<T>(
+        modelType,
+        since: lastSyncTime,
+        modelFactories: modelFactories,
+      );
 
       if (items.isEmpty) {
         return SyncResult.noChanges();

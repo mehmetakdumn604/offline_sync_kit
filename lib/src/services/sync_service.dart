@@ -17,6 +17,7 @@ abstract class SyncService {
   Future<SyncResult> pullFromServer<T extends SyncModel>(
     String modelType, {
     DateTime? since,
+    Map<String, dynamic Function(Map<String, dynamic>)>? modelFactories,
   });
 
   Future<void> startPeriodicSync();

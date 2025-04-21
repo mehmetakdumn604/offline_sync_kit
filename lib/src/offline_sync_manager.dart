@@ -608,6 +608,7 @@ class OfflineSyncManager {
       final result = await repository.pullFromServer<T>(
         modelType,
         lastSyncTime ?? await _storageService.getLastSyncTime(),
+        modelFactories: factoriesMap,
       );
 
       if (result.isSuccessful) {

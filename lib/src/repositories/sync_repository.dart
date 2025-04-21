@@ -27,8 +27,9 @@ abstract class SyncRepository {
 
   Future<SyncResult> pullFromServer<T extends SyncModel>(
     String modelType,
-    DateTime? lastSyncTime,
-  );
+    DateTime? lastSyncTime, {
+    Map<String, dynamic Function(Map<String, dynamic>)>? modelFactories,
+  });
 
   Future<T?> createItem<T extends SyncModel>(T item);
 

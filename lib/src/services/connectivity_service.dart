@@ -44,21 +44,23 @@ class ConnectivityServiceImpl implements ConnectivityService {
 
   @override
   Future<bool> get isConnected async {
-    final result = await _connectivity.checkConnectivity();
-    return result != ConnectivityResult.none;
+    final results = await _connectivity.checkConnectivity();
+    return results.isNotEmpty &&
+        results.any((result) => result != ConnectivityResult.none);
   }
 
   @override
   Future<bool> isConnectionSatisfied(ConnectivityOptions requirements) async {
-    final result = await _connectivity.checkConnectivity();
+    final results = await _connectivity.checkConnectivity();
 
     switch (requirements) {
       case ConnectivityOptions.any:
-        return result != ConnectivityResult.none;
+        return results.isNotEmpty &&
+            results.any((result) => result != ConnectivityResult.none);
       case ConnectivityOptions.wifi:
-        return result == ConnectivityResult.wifi;
+        return results.contains(ConnectivityResult.wifi);
       case ConnectivityOptions.mobile:
-        return result == ConnectivityResult.mobile;
+        return results.contains(ConnectivityResult.mobile);
       case ConnectivityOptions.none:
         return true;
     }
