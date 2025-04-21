@@ -116,10 +116,31 @@ abstract class SyncModel extends Equatable {
 
   /// Converts only the changed fields to a JSON map for delta synchronization
   ///
-  /// By default uses the full toJson() but subclasses should override
-  /// this to implement proper delta synchronization
+  /// This is used for efficient data transfer when only specific fields have changed.
+  /// The implementation includes the model ID and only the fields that are tracked
+  /// in the changedFields set.
+  ///
+  /// Derived classes should override this method for proper delta synchronization.
   Map<String, dynamic> toJsonDelta() {
-    return toJson();
+    // Always include id for record identification
+    final Map<String, dynamic> delta = {'id': id};
+
+    // If no specific fields are tracked, return just the ID
+    if (changedFields.isEmpty) {
+      return delta;
+    }
+
+    // Get the full JSON representation
+    final fullJson = toJson();
+
+    // Add only changed fields to the delta
+    for (final field in changedFields) {
+      if (fullJson.containsKey(field)) {
+        delta[field] = fullJson[field];
+      }
+    }
+
+    return delta;
   }
 
   /// Creates a copy of this model with optionally modified properties

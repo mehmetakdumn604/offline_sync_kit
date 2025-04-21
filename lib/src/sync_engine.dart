@@ -94,6 +94,11 @@ class SyncEngine {
   /// Listen to this stream to be notified of changes in the synchronization status
   Stream<SyncStatus> get statusStream => _statusController.stream;
 
+  /// Get the repository for accessing server data
+  ///
+  /// This is primarily used for advanced operations like fetching data directly from the server
+  SyncRepository get repository => _repository;
+
   /// Gets the current synchronization status
   ///
   /// Returns a [SyncStatus] object containing the current status
@@ -433,16 +438,15 @@ class SyncEngine {
     _statusController.close();
   }
 
-  /// Synchronizes a model with the server using delta synchronization (only changed fields)
+  /// Synchronizes a specific model instance using delta synchronization
   ///
-  /// This method will only send the fields that have changed to the server,
-  /// which can reduce network bandwidth and improve performance.
+  /// This method will only send changed fields to the server instead of the entire model.
+  /// If the model has no changed fields, it will be skipped.
+  /// If encryption is enabled, the data will be encrypted before sending to the server.
   ///
-  /// Parameters:
-  /// - [item]: The model to synchronize
-  /// - [options]: Optional synchronization options to override the defaults
-  ///
-  /// Returns a [SyncResult] with details of the operation
+  /// @param model The model to sync with the server
+  /// @param options Optional synchronization options to override the defaults
+  /// @return A Future containing the sync result
   Future<SyncResult> syncItemDelta<T extends SyncModel>(
     T item, {
     SyncOptions? options,
@@ -468,25 +472,32 @@ class SyncEngine {
 
     try {
       // Extract only the changed fields from the model
-      item.toJsonDelta();
+      final changedFields = item.toJsonDelta();
 
-      // Update the model using the main repo's updateItem method
-      final updatedItem = await _repository.updateItem(item);
+      // Try to use syncDelta if the repository implements it
+      SyncResult result;
+      try {
+        result = await _repository.syncDelta(item, changedFields);
+      } catch (e) {
+        // Fallback to updateItem if syncDelta is not fully implemented
+        final updatedItem = await _repository.updateItem(item);
 
-      if (updatedItem != null) {
-        // Success - save and mark as synced
-        await _storageService.save(updatedItem);
-        await _updateLastSyncTime();
-        await _updatePendingCount();
-        _setIsSyncing(false);
-        return SyncResult.success(processedItems: 1);
-      } else {
-        // Failed to update
-        _setIsSyncing(false);
-        return SyncResult.failed(
-          error: 'Delta sync failed for ${item.modelType} with id ${item.id}',
-        );
+        if (updatedItem != null) {
+          // Success - save and mark as synced
+          await _storageService.save(updatedItem);
+          result = SyncResult.success(processedItems: 1);
+        } else {
+          // Failed to update
+          result = SyncResult.failed(
+            error: 'Delta sync failed for ${item.modelType} with id ${item.id}',
+          );
+        }
       }
+
+      await _updateLastSyncTime();
+      await _updatePendingCount();
+      _setIsSyncing(false);
+      return result;
     } catch (e) {
       _setIsSyncing(false);
       return SyncResult.failed(error: e.toString());

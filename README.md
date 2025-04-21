@@ -35,20 +35,9 @@ The package is built around several key components:
 6. **ConnectivityService**: Monitors network state and triggers appropriate actions
 7. **ConflictResolutionHandler**: Manages different strategies for resolving data conflicts
 
-### Real-World Applications
-
-This package is particularly valuable for:
-
-- **Field Service Applications**: Where technicians need access to work orders and the ability to complete forms even in areas with poor connectivity
-- **Healthcare Apps**: For collecting patient data that must be reliably synchronized with medical records systems
-- **Sales & Inventory Systems**: To update stock levels and process orders regardless of network availability
-- **Collaborative Tools**: That need to handle editing conflicts when multiple users modify the same data
-- **Data Collection Apps**: That gather information in remote locations for later synchronization
-- **Financial Applications**: That need secure, encrypted storage for sensitive information
-
 ## Features
 
-- **Core Functionality**:
+- **Core Features**:
   - Offline data storage and synchronization
   - Flexible and extensible structure
   - Works with different data types
@@ -58,12 +47,16 @@ This package is particularly valuable for:
   - Exponential backoff for failed requests
   - Customizable synchronization policies
 
-- **Advanced Features (New in v1.1.0)**:
+- **Advanced Features**:
   - **Delta Synchronization**: Only sync changed fields to improve bandwidth efficiency
   - **Advanced Conflict Resolution**: Multiple strategies including server-wins, client-wins, last-update-wins, and custom handlers
   - **Optional Data Encryption**: Secure storage of sensitive information with configurable encryption keys
   - **Performance Optimizations**: Batched synchronization and prioritized sync queue management
   - **Extended Configuration Options**: Flexible sync intervals, batch size settings, and bidirectional sync controls
+  - **Custom Repository Injection**: Ability to inject your own repository implementation without forking the package
+  - **Model Factory Access**: Built-in access to registered model factories
+  - **Flexible Bidirectional Sync**: Enhanced support for fetching and pulling data from the server
+  - **Robust Error Handling**: Improved handling of unexpected API responses
 
 ## Installation
 
@@ -89,7 +82,7 @@ class Todo extends SyncModel {
   final bool isCompleted;
   final int priority;
   
-  // New in v1.1.0: Track changed fields for delta sync
+  // Track changed fields for delta sync
   final Set<String> changedFields;
 
   Todo({
@@ -129,7 +122,7 @@ class Todo extends SyncModel {
     };
   }
   
-  // New in v1.1.0: Support for delta synchronization
+  // Support for delta synchronization
   Map<String, dynamic> toJsonDelta() {
     final Map<String, dynamic> delta = {'id': id};
     
@@ -170,7 +163,7 @@ class Todo extends SyncModel {
     );
   }
   
-  // Helper methods for updating fields (new in v1.1.0)
+  // Helper methods for updating fields
   Todo updateTitle(String newTitle) {
     final updatedFields = Set<String>.from(changedFields)..add('title');
     return copyWith(title: newTitle, changedFields: updatedFields);
@@ -239,7 +232,7 @@ Future<void> initSyncManager() async {
     (json) => Todo.fromJson(json),
   );
   
-  // Advanced configuration options (new in v1.1.0)
+  // Advanced configuration options
   final syncOptions = SyncOptions(
     syncInterval: const Duration(minutes: 5),
     useDeltaSync: true,
@@ -249,7 +242,13 @@ Future<void> initSyncManager() async {
     bidirectionalSync: true,
   );
   
-  // Enable encryption with a secure key (new in v1.1.0)
+  // Optional: Provide a custom repository implementation
+  final customRepository = MyCustomRepository(
+    networkClient: myNetworkClient,
+    storageService: storageService,
+  );
+  
+  // Enable encryption with a secure key
   final encryptionEnabled = true;
   final encryptionKey = 'your-secure-encryption-key';
   
@@ -259,6 +258,7 @@ Future<void> initSyncManager() async {
     syncOptions: syncOptions,
     encryptionEnabled: encryptionEnabled,
     encryptionKey: encryptionKey,
+    customRepository: customRepository, // Optional
   );
   
   // Register TodoModel with OfflineSyncManager
@@ -310,6 +310,21 @@ final todo = await OfflineSyncManager.instance.getModel<Todo>(id, 'todo');
 final todos = await OfflineSyncManager.instance.getAllModels<Todo>('todo');
 ```
 
+#### Fetching Data from Server
+
+```dart
+// Fetch items with pagination
+final todos = await OfflineSyncManager.instance.fetchItems<Todo>(
+  'todo',
+  limit: 20, 
+  offset: 0,
+  since: lastSyncTime,
+);
+
+// Pull and synchronize with local storage
+final result = await OfflineSyncManager.instance.pullFromServer<Todo>('todo');
+```
+
 ### 4. Synchronization
 
 #### Manual Synchronization
@@ -347,7 +362,7 @@ OfflineSyncManager.instance.syncStatusStream.listen((status) {
 final status = await OfflineSyncManager.instance.currentStatus;
 ```
 
-### 6. Handling Conflicts (New in v1.1.0)
+### 6. Handling Conflicts
 
 ```dart
 // Set up a custom conflict handler
@@ -369,7 +384,7 @@ final syncOptions = SyncOptions(
 OfflineSyncManager.instance.updateSyncOptions(syncOptions);
 ```
 
-### 7. Managing Encryption (New in v1.1.0)
+### 7. Managing Encryption
 
 ```dart
 // Enable encryption
@@ -380,6 +395,35 @@ await OfflineSyncManager.instance.disableEncryption();
 
 // Check encryption status
 final isEncrypted = OfflineSyncManager.instance.isEncryptionEnabled;
+```
+
+### 8. Custom Repository Implementation
+
+```dart
+// Create a custom repository implementation
+class MyCustomRepository implements SyncRepository {
+  final NetworkClient networkClient;
+  final StorageService storageService;
+  
+  MyCustomRepository({
+    required this.networkClient,
+    required this.storageService,
+  });
+  
+  // Implement required methods
+  
+  // Custom implementation for fetchItems with special handling for your API
+  @override
+  Future<List<T>> fetchItems<T extends SyncModel>(
+    String modelType, {
+    DateTime? since,
+    int? limit,
+    int? offset,
+    Map<String, dynamic Function(Map<String, dynamic>)>? modelFactories,
+  }) async {
+    // Your custom implementation...
+  }
+}
 ```
 
 ## Example App

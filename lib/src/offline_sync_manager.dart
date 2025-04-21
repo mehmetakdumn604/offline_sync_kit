@@ -10,6 +10,7 @@ import 'models/sync_result.dart';
 import 'models/sync_status.dart';
 import 'network/default_network_client.dart';
 import 'network/network_client.dart';
+import 'repositories/sync_repository.dart';
 import 'repositories/sync_repository_impl.dart';
 import 'services/connectivity_service.dart';
 import 'services/storage_service.dart';
@@ -196,6 +197,10 @@ class OfflineSyncManager {
   /// - [connectivityService]: Optional custom connectivity service implementation
   /// - [storageService]: Required storage service implementation
   /// - [syncOptions]: Optional configuration options for synchronization
+  /// - [enableEncryption]: Whether to enable encryption for data
+  /// - [encryptionKey]: Key to use for encryption if enabled
+  /// - [customRepository]: Optional custom repository implementation. If provided,
+  ///   this will be used instead of creating a new SyncRepositoryImpl.
   ///
   /// Returns the initialized singleton instance
   ///
@@ -208,6 +213,7 @@ class OfflineSyncManager {
     SyncOptions? syncOptions,
     bool enableEncryption = false,
     String? encryptionKey,
+    SyncRepository? customRepository,
   }) async {
     // Return existing instance if already initialized
     if (_instance != null) {
@@ -234,11 +240,13 @@ class OfflineSyncManager {
       );
     }
 
-    // Create repository and sync engine
-    final syncRepository = SyncRepositoryImpl(
-      networkClient: defaultNetworkClient,
-      storageService: storage,
-    );
+    // Use custom repository if provided, otherwise create default implementation
+    final syncRepository =
+        customRepository ??
+        SyncRepositoryImpl(
+          networkClient: defaultNetworkClient,
+          storageService: storage,
+        );
 
     final syncEngine = SyncEngine(
       repository: syncRepository,
@@ -515,20 +523,103 @@ class OfflineSyncManager {
     return _syncEngine.syncItem<T>(model);
   }
 
-  /// Pulls data from the server and decrypts it if encryption is enabled
+  /// Fetches items of type [T] from the server
   ///
-  /// This method fetches data from the remote server and decrypts it
-  /// before saving to local storage.
+  /// This method retrieves items from the remote API and optionally
+  /// saves them to local storage.
   ///
-  /// @param modelType The type of model to fetch
-  /// @param since Optional timestamp to only fetch models updated since then
-  /// @return A Future containing the sync result
-  Future<SyncResult> pullFromServer<T extends SyncModel>(
+  /// [modelType] The type of model to fetch
+  /// [since] Optional timestamp to only fetch items modified since this time
+  /// [limit] Optional maximum number of items to fetch
+  /// [offset] Optional offset for pagination
+  /// [saveToStorage] Whether to save fetched items to local storage
+  /// Returns a list of model instances
+  Future<List<T>> fetchItems<T extends SyncModel>(
     String modelType, {
     DateTime? since,
+    int? limit,
+    int? offset,
+    bool saveToStorage = true,
   }) async {
-    // If encryption is enabled, the data will be decrypted automatically
-    return _syncEngine.pullFromServer<T>(modelType, since: since);
+    if (!_modelFactories.containsKey(modelType)) {
+      throw Exception('No model factory registered for $modelType');
+    }
+
+    // Convert _modelFactories to the format expected by SyncRepositoryImpl
+    final Map<String, dynamic Function(Map<String, dynamic>)> factoriesMap = {};
+    _modelFactories.forEach((key, value) {
+      factoriesMap[key] = (json) => value(json);
+    });
+
+    // Get the repository from _syncEngine
+    final repository = _syncEngine.repository;
+    if (repository is! SyncRepositoryImpl) {
+      throw Exception('Repository is not of type SyncRepositoryImpl');
+    }
+
+    // Fetch items from server
+    final items = await repository.fetchItems<T>(
+      modelType,
+      since: since,
+      limit: limit,
+      offset: offset,
+      modelFactories: factoriesMap,
+    );
+
+    // Save to storage if requested
+    if (saveToStorage && items.isNotEmpty) {
+      await _storageService.saveAll<T>(items);
+    }
+
+    return items;
+  }
+
+  /// Pulls and synchronizes data from the server for a specific model type
+  ///
+  /// This method is used for bidirectional synchronization to get the latest
+  /// data from the server and update the local storage accordingly.
+  ///
+  /// [modelType] The type of model to synchronize
+  /// [lastSyncTime] Optional timestamp to only fetch items changed since this time
+  /// Returns a SyncResult with details of the operation
+  Future<SyncResult> pullFromServer<T extends SyncModel>(
+    String modelType, {
+    DateTime? lastSyncTime,
+  }) async {
+    if (!_modelFactories.containsKey(modelType)) {
+      throw Exception('No model factory registered for $modelType');
+    }
+
+    // Convert _modelFactories to the format expected by SyncRepositoryImpl
+    final Map<String, dynamic Function(Map<String, dynamic>)> factoriesMap = {};
+    _modelFactories.forEach((key, value) {
+      factoriesMap[key] = (json) => value(json);
+    });
+
+    // Get the repository from _syncEngine
+    final repository = _syncEngine.repository;
+    if (repository is! SyncRepositoryImpl) {
+      throw Exception('Repository is not of type SyncRepositoryImpl');
+    }
+
+    try {
+      // First update the repository's fetchItems method with our model factories
+      // Then call pullFromServer which will use fetchItems internally
+      final result = await repository.pullFromServer<T>(
+        modelType,
+        lastSyncTime ?? await _storageService.getLastSyncTime(),
+      );
+
+      if (result.isSuccessful) {
+        await _storageService.setLastSyncTime(DateTime.now());
+      }
+
+      await _syncEngine.updateSyncStatus();
+      return result;
+    } catch (e) {
+      debugPrint('Error pulling from server for $modelType: $e');
+      return SyncResult.failed(error: e.toString());
+    }
   }
 
   /// A stream of synchronization status updates
@@ -566,14 +657,11 @@ class OfflineSyncManager {
     await _syncEngine.stopPeriodicSync();
   }
 
-  /// Releases resources and cleans up
+  /// Disposes resources used by the offline sync manager
   ///
-  /// Should be called when the application is closing or the manager is no longer needed.
-  /// This ensures that all resources are properly released, including subscriptions,
-  /// timers, and database connections.
-  Future<void> dispose() async {
-    await _connectivitySubscription.cancel();
+  /// This should be called when the application is terminated to avoid memory leaks.
+  void dispose() {
+    _connectivitySubscription.cancel();
     _syncEngine.dispose();
-    await _storageService.close();
   }
 }

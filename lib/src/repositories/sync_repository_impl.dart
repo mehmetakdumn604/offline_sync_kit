@@ -302,20 +302,85 @@ class SyncRepositoryImpl implements SyncRepository {
   ///
   /// [modelType] - The type of model to fetch
   /// [since] - Optional timestamp to only fetch items modified since this time
+  /// [limit] - Optional maximum number of items to fetch
+  /// [offset] - Optional offset for pagination
+  /// [modelFactories] - Map of model factories to create instances from JSON
   /// Returns a list of model instances
-  ///
-  /// Note: This method requires implementation of model factories to create
-  /// instances based on the model type.
   @override
   Future<List<T>> fetchItems<T extends SyncModel>(
     String modelType, {
     DateTime? since,
+    int? limit,
+    int? offset,
+    Map<String, dynamic Function(Map<String, dynamic>)>? modelFactories,
   }) async {
-    // This method would need a factory to create model instances
-    // based on model type, which is beyond the scope of this example
-    // In a real implementation, you would register model factories
-    throw UnimplementedError(
-      'Implementation requires model factories to be registered',
-    );
+    try {
+      // Ensure we have a factory for this model type
+      final factory = modelFactories?[modelType];
+      if (factory == null) {
+        throw Exception('No model factory registered for $modelType');
+      }
+
+      // Build query parameters
+      final queryParams = <String, String>{};
+      if (since != null) {
+        queryParams['since'] = since.toIso8601String();
+      }
+      if (limit != null) {
+        queryParams['limit'] = limit.toString();
+      }
+      if (offset != null) {
+        queryParams['offset'] = offset.toString();
+      }
+
+      // Get model endpoint from a temporary instance or use modelType
+      final endpoint = modelType.toLowerCase();
+
+      // Fetch data from server
+      final response = await _networkClient.get(
+        endpoint,
+        queryParameters: queryParams,
+      );
+
+      if (!response.isSuccessful) {
+        throw Exception('Failed to fetch items: ${response.statusCode}');
+      }
+
+      // Parse response data
+      List<dynamic> dataList;
+
+      if (response.data is List) {
+        dataList = response.data as List<dynamic>;
+      } else if (response.data is Map<String, dynamic> &&
+          (response.data as Map<String, dynamic>).containsKey('data')) {
+        final dataMap = response.data as Map<String, dynamic>;
+        dataList = dataMap['data'] as List<dynamic>? ?? [];
+      } else {
+        dataList = [];
+      }
+
+      // Convert to model instances using factory
+      final items =
+          dataList
+              .map((item) {
+                if (item is! Map<String, dynamic>) {
+                  return null; // Skip invalid items
+                }
+                try {
+                  return factory(item) as T;
+                } catch (e) {
+                  debugPrint('Error creating model from JSON: $e');
+                  return null;
+                }
+              })
+              .where((item) => item != null)
+              .cast<T>()
+              .toList();
+
+      return items;
+    } catch (e) {
+      debugPrint('Error fetching items of type $modelType: $e');
+      return [];
+    }
   }
 }
