@@ -1,3 +1,19 @@
+## 1.3.0
+
+* Custom repository support:
+  * Added customRepository parameter to OfflineSyncManager.initialize()
+  * Repository can now be accessed via new getter in SyncEngine
+  * Improved syncItemDelta to better support custom implementations
+* Model factory handling:
+  * fetchItems and pullFromServer now correctly use registered model factories
+  * Fixed issue where modelFactories was null in custom repositories
+  * modelFactories are now passed into fetchItems from pullFromServer
+* Delta sync improvements:
+  * SyncModel.toJsonDelta() made more reliable and consistent
+* Error handling improvements:
+  * Better handling of invalid or unexpected API responses
+  * Safer defaults applied when responses are incomplete
+
 ## 1.2.0
 
 * Added github address to pubspec.yaml file.
