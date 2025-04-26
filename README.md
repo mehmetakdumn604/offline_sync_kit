@@ -22,6 +22,7 @@ Offline Sync Kit abstracts away these challenges by providing:
 - Conflict detection and resolution mechanisms
 - Optimized data transfer with delta synchronization
 - Enhanced security with optional data encryption
+- WebSocket support for real-time data synchronization
 
 ### Key Architectural Components
 
@@ -31,9 +32,12 @@ The package is built around several key components:
 2. **OfflineSyncManager**: The main entry point for the package that orchestrates synchronization operations
 3. **StorageService**: Manages local data persistence with transactional support
 4. **SyncEngine**: Handles the core synchronization logic with configurable strategies
-5. **NetworkClient**: Provides a flexible API client with a default HTTP implementation
+5. **NetworkClient**: Provides a flexible API client with HTTP and WebSocket implementations
 6. **ConnectivityService**: Monitors network state and triggers appropriate actions
 7. **ConflictResolutionHandler**: Manages different strategies for resolving data conflicts
+8. **WebSocketConnectionManager**: Handles WebSocket connection lifecycle and real-time events
+9. **SyncEventMapper**: Customizes event mappings between WebSocket and application events
+10. **WebSocketConfig**: Enables customization of WebSocket behavior and messages
 
 ## Features
 
@@ -58,13 +62,22 @@ The package is built around several key components:
   - **Flexible Bidirectional Sync**: Enhanced support for fetching and pulling data from the server
   - **Robust Error Handling**: Improved handling of unexpected API responses
 
+- **WebSocket Features**:
+  - **Real-time Synchronization**: Immediate data updates via WebSocket connections
+  - **Pub/Sub Channel System**: Subscribe to specific data channels for targeted updates
+  - **Automatic Reconnection**: Smart reconnection with exponential backoff on connection loss
+  - **Connection State Management**: Monitor connection states and react accordingly
+  - **Highly Customizable**: Fully customizable message formats, event names, and behavior
+  - **Event Streaming**: Track and process synchronization events in real-time
+  - **Compatible with REST APIs**: Use alongside or instead of traditional HTTP endpoints
+
 ## Installation
 
 To add the package to your project, add the following lines to your `pubspec.yaml` file:
 
 ```yaml
 dependencies:
-  offline_sync_kit: ^1.3.0
+  offline_sync_kit: ^1.4.0
 ```
 
 ## Usage
@@ -220,8 +233,9 @@ import 'package:offline_sync_kit/offline_sync_kit.dart';
 import 'package:offline_sync_kit/src/models/conflict_resolution_strategy.dart';
 
 Future<void> initSyncManager() async {
-  // Specify your API base URL here
+  // Specify your API base URL and WebSocket URL
   const baseUrl = 'https://api.example.com';
+  const wsUrl = 'wss://api.example.com/socket';
   
   final storageService = StorageServiceImpl();
   await storageService.initialize();
@@ -232,6 +246,24 @@ Future<void> initSyncManager() async {
     (json) => Todo.fromJson(json),
   );
   
+  // Create WebSocket configuration
+  final webSocketConfig = WebSocketConfig(
+    serverUrl: wsUrl,
+    pingInterval: 30,
+    reconnectDelay: 3000,
+    maxReconnectAttempts: 5,
+  );
+  
+  // Create event mapper for WebSocket events
+  final eventMapper = SyncEventMapper(
+    eventNameToTypeMap: {
+      'item_updated': SyncEventType.modelUpdated,
+      'item_created': SyncEventType.modelAdded,
+      'item_deleted': SyncEventType.modelDeleted,
+      'sync_completed': SyncEventType.syncCompleted,
+    },
+  );
+  
   // Advanced configuration options
   final syncOptions = SyncOptions(
     syncInterval: const Duration(minutes: 5),
@@ -240,12 +272,13 @@ Future<void> initSyncManager() async {
     batchSize: 10,
     autoSync: true,
     bidirectionalSync: true,
+    useWebSocket: true, // Enable WebSocket
   );
   
-  // Optional: Provide a custom repository implementation
-  final customRepository = MyCustomRepository(
-    networkClient: myNetworkClient,
-    storageService: storageService,
+  // Create WebSocket network client
+  final webSocketClient = WebSocketNetworkClient.withConfig(
+    config: webSocketConfig,
+    eventMapper: eventMapper,
   );
   
   // Enable encryption with a secure key
@@ -258,7 +291,7 @@ Future<void> initSyncManager() async {
     syncOptions: syncOptions,
     encryptionEnabled: encryptionEnabled,
     encryptionKey: encryptionKey,
-    customRepository: customRepository, // Optional
+    webSocketClient: webSocketClient, // Pass WebSocket client
   );
   
   // Register TodoModel with OfflineSyncManager
@@ -266,6 +299,27 @@ Future<void> initSyncManager() async {
     'todo',
     (json) => Todo.fromJson(json),
   );
+  
+  // Subscribe to WebSocket synchronization events
+  OfflineSyncManager.instance.syncEventStream.listen((event) {
+    switch (event.type) {
+      case SyncEventType.modelUpdated:
+        print('Model updated via WebSocket: ${event.data}');
+        break;
+      case SyncEventType.modelAdded:
+        print('New model added via WebSocket: ${event.data}');
+        break;
+      case SyncEventType.syncCompleted:
+        print('Synchronization completed');
+        break;
+      default:
+        break;
+    }
+  });
+  
+  // Connect to WebSocket server and subscribe to channels
+  await OfflineSyncManager.instance.connectWebSocket();
+  await OfflineSyncManager.instance.subscribeToChannel('todos');
 }
 ```
 
@@ -325,6 +379,29 @@ final todos = await OfflineSyncManager.instance.fetchItems<Todo>(
 final result = await OfflineSyncManager.instance.pullFromServer<Todo>('todo');
 ```
 
+#### Listening for Real-time Updates
+
+```dart
+// Listen for real-time model updates via WebSocket
+OfflineSyncManager.instance.registerSyncEventCallback((event) {
+  if (event.type == SyncEventType.modelUpdated && 
+      event.modelType == 'todo') {
+    // Process updated Todo model
+    final updatedTodo = Todo.fromJson(event.data);
+    print('Todo updated in real-time: ${updatedTodo.title}');
+    
+    // Update UI or state management
+    updateTodoInList(updatedTodo);
+  }
+});
+
+// Subscribe to specific data channels
+OfflineSyncManager.instance.subscribeToChannel('todos/user123');
+
+// Unsubscribe when no longer needed
+OfflineSyncManager.instance.unsubscribeFromChannel('todos/user123');
+```
+
 ### 4. Synchronization
 
 #### Manual Synchronization
@@ -345,6 +422,28 @@ await OfflineSyncManager.instance.startPeriodicSync();
 
 // Stop periodic synchronization
 await OfflineSyncManager.instance.stopPeriodicSync();
+```
+
+#### WebSocket Synchronization
+
+```dart
+// Check WebSocket connection status
+final isConnected = await OfflineSyncManager.instance.isWebSocketConnected;
+
+// Manually reconnect WebSocket if needed
+if (!isConnected) {
+  await OfflineSyncManager.instance.connectWebSocket();
+}
+
+// Send a custom message over WebSocket
+await OfflineSyncManager.instance.sendWebSocketMessage({
+  'action': 'refresh_data',
+  'model_type': 'todo',
+  'timestamp': DateTime.now().toIso8601String(),
+});
+
+// Close WebSocket connection when not needed
+await OfflineSyncManager.instance.closeWebSocket();
 ```
 
 ### 5. Monitoring Synchronization Status
@@ -424,6 +523,87 @@ class MyCustomRepository implements SyncRepository {
     // Your custom implementation...
   }
 }
+```
+
+### 9. Real-time Data Synchronization with WebSockets
+
+```dart
+// Create a custom SyncEventMapper for translating between WebSocket events and app events
+final eventMapper = SyncEventMapper(
+  // Map WebSocket event names to SyncEventType enum values
+  eventNameToTypeMap: {
+    'item_updated': SyncEventType.modelUpdated,
+    'item_created': SyncEventType.modelAdded,
+    'item_deleted': SyncEventType.modelDeleted,
+    'sync_completed': SyncEventType.syncCompleted,
+    'conflict_detected': SyncEventType.conflictDetected,
+  },
+  
+  // Map SyncEventType enum values back to WebSocket event names
+  typeToEventNameMap: {
+    SyncEventType.modelUpdated: 'client_update',
+    SyncEventType.modelAdded: 'client_create',
+    SyncEventType.modelDeleted: 'client_delete',
+  },
+);
+
+// Create a WebSocketNetworkClient with the event mapper
+final webSocketClient = WebSocketNetworkClient.withConfig(
+  config: WebSocketConfig(
+    serverUrl: 'wss://api.example.com/socket',
+    pingInterval: 30,
+    reconnectDelay: 3000,
+  ),
+  eventMapper: eventMapper,
+);
+
+// Setup notification handling for real-time updates
+webSocketClient.eventStream.listen((event) {
+  if (event.type == SyncEventType.modelUpdated) {
+    // Extract the model type and ID from the event data
+    final modelType = event.data['model_type'];
+    final modelId = event.data['id'];
+    
+    // Fetch the updated model from the server or use the provided data
+    if (event.data.containsKey('model_data')) {
+      // Direct update with provided data
+      final modelData = event.data['model_data'];
+      updateLocalModel(modelType, modelId, modelData);
+    } else {
+      // Fetch the latest version from the server
+      OfflineSyncManager.instance.pullModelById(modelType, modelId);
+    }
+  }
+});
+
+// Connect and authenticate with the WebSocket server
+await webSocketClient.connect();
+await webSocketClient.authenticate({
+  'token': 'user-auth-token',
+  'device_id': 'unique-device-identifier',
+});
+
+// Subscribe to specific data channels with filters
+webSocketClient.subscribe(
+  'todos', 
+  parameters: {
+    'user_id': 'user123',
+    'since': DateTime.now().subtract(Duration(days: 7)).toIso8601String(),
+    'status': 'active',
+  },
+);
+
+// Process specific message types with custom handlers
+webSocketClient.registerMessageHandler(
+  'model_batch_update',
+  (message) {
+    final updates = message['updates'] as List;
+    for (final update in updates) {
+      processModelUpdate(update);
+    }
+    return true; // Return true to indicate message was handled
+  },
+);
 ```
 
 ## Example App
